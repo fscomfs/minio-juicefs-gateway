@@ -947,3 +947,14 @@ func (fs *FSObjects) cleanupStaleUploads(ctx context.Context) {
 		}
 	}
 }
+
+func (n *FSObjects) GetDirQuotaInfo(ctx context.Context, bucket string, dpath string) (di DirInfo, err error) {
+
+	//TODO implement me
+	panic("implement me")
+}
+
+func (n *FSObjects) SetDirQuota(ctx context.Context, bucket string, dpath string, maxSpace int64, maxInodes int64) (DirInfo, error) {
+	//TODO implement me
+	panic("implement me")
+}

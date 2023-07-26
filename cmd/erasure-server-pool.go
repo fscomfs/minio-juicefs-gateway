@@ -2158,3 +2158,14 @@ func (z *erasureServerPools) RestoreTransitionedObject(ctx context.Context, buck
 
 	return z.serverPools[idx].RestoreTransitionedObject(ctx, bucket, object, opts)
 }
+
+func (n *erasureServerPools) GetDirQuotaInfo(ctx context.Context, bucket string, dpath string) (di DirInfo, err error) {
+
+	//TODO implement me
+	panic("implement me")
+}
+
+func (n *erasureServerPools) SetDirQuota(ctx context.Context, bucket string, dpath string, maxSpace int64, maxInodes int64) (DirInfo, error) {
+	//TODO implement me
+	panic("implement me")
+}

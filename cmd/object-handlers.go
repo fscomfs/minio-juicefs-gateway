@@ -58,6 +58,7 @@ import (
 	xioutil "github.com/minio/minio/internal/ioutil"
 	"github.com/minio/minio/internal/kms"
 	"github.com/minio/minio/internal/logger"
+	"github.com/minio/minio/internal/quota"
 	"github.com/minio/minio/internal/s3select"
 	"github.com/minio/pkg/bucket/policy"
 	iampolicy "github.com/minio/pkg/iam/policy"
@@ -83,6 +84,11 @@ const (
 	encryptBufferThreshold = 1 << 20
 	// add an input buffer of this size.
 	encryptBufferSize = 1 << 20
+
+	// SetDirQuotaAction - SetDirQuotaAction Rest API action.
+	SetDirQuotaAction = "s3:SetDirQuota"
+	// SetDirQuotaAction - SetDirQuotaAction Rest API action.
+	GetDirQuotaAction = "s3:GetDirQuota"
 )
 
 // setHeadGetRespHeaders - set any requested parameters as response headers.
@@ -545,6 +551,78 @@ func (api objectAPIHandlers) getObjectHandler(ctx context.Context, objectAPI Obj
 		UserAgent:    r.UserAgent(),
 		Host:         handlers.GetSourceIP(r),
 	})
+}
+
+func (api objectAPIHandlers) GetDirQuotaHandler(w http.ResponseWriter, r *http.Request) {
+	ctx := newContext(r, w, "GetDirQuotaHandler")
+
+	defer logger.AuditLog(ctx, w, r, mustGetClaimsFromToken(r))
+
+	objectAPI := api.ObjectAPI()
+	if objectAPI == nil {
+		writeErrorResponse(ctx, w, errorCodes.ToAPIErr(ErrServerNotInitialized), r.URL)
+		return
+	}
+	vars := mux.Vars(r)
+	bucket := vars["bucket"]
+	object, err := unescapePath(vars["object"])
+	if err != nil {
+		writeErrorResponse(ctx, w, toAPIError(ctx, err), r.URL)
+		return
+	}
+	if s3Error := checkRequestAuthType(ctx, r, GetDirQuotaAction, bucket, object); s3Error != ErrNone {
+		writeErrorResponse(ctx, w, errorCodes.ToAPIErr(s3Error), r.URL)
+		return
+	}
+
+	if dirInfo, err := objectAPI.GetDirQuotaInfo(ctx, bucket, object); err == nil {
+		r := quota.QuotaInfo{}
+		r.MaxSpace = dirInfo.MaxSpace
+		r.UsedSpace = dirInfo.UsedSpace
+		r.Dpath = dirInfo.DirName
+		writeSuccessResponseXML(w, encodeResponse(r))
+	}
+
+}
+
+func (api objectAPIHandlers) SetDirQuotaHandler(w http.ResponseWriter, r *http.Request) {
+	ctx := newContext(r, w, "SetDirQuotaHandler")
+	defer logger.AuditLog(ctx, w, r, mustGetClaimsFromToken(r))
+
+	objectAPI := api.ObjectAPI()
+	if objectAPI == nil {
+		writeErrorResponse(ctx, w, errorCodes.ToAPIErr(ErrServerNotInitialized), r.URL)
+		return
+	}
+	vars := mux.Vars(r)
+	bucket := vars["bucket"]
+	object, err := unescapePath(vars["object"])
+	if err != nil {
+		writeErrorResponse(ctx, w, toAPIError(ctx, err), r.URL)
+		return
+	}
+	quotaInfo, err := quota.ParseQuotaInfoConfig(r.Body)
+	if err != nil {
+		writeErrorResponse(ctx, w, toAPIError(ctx, err), r.URL)
+		return
+	}
+	if s3Error := checkRequestAuthType(ctx, r, SetDirQuotaAction, bucket, object); s3Error != ErrNone {
+		writeErrorResponse(ctx, w, errorCodes.ToAPIErr(s3Error), r.URL)
+		return
+	}
+	if dirInfo, err := objectAPI.SetDirQuota(ctx, bucket, object, quotaInfo.MaxSpace, quotaInfo.MaxInodes); err == nil {
+		q := quota.QuotaInfo{
+			MaxSpace:   dirInfo.MaxSpace,
+			MaxInodes:  dirInfo.MaxInodes,
+			UsedSpace:  dirInfo.UsedSpace,
+			UsedInodes: dirInfo.UsedInodes,
+			Dpath:      dirInfo.DirName,
+		}
+		writeSuccessResponseXML(w, encodeResponse(q))
+	} else {
+		writeErrorResponse(ctx, w, errorCodes.ToAPIErr(ErrInternalError), r.URL)
+	}
+
 }
 
 // GetObjectHandler - GET Object

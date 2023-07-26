@@ -815,3 +815,14 @@ func (l *s3EncObjects) DeleteBucket(ctx context.Context, bucket string, opts min
 	}
 	return nil
 }
+
+func (n *s3EncObjects) GetDirQuotaInfo(ctx context.Context, bucket string, dpath string) (di minio.DirInfo, err error) {
+
+	//TODO implement me
+	panic("implement me")
+}
+
+func (n *s3EncObjects) SetDirQuota(ctx context.Context, bucket string, dpath string, maxSpace int64, maxInodes int64) (minio.DirInfo, error) {
+	//TODO implement me
+	panic("implement me")
+}

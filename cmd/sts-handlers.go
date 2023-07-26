@@ -223,8 +223,13 @@ func (sts *stsAPIHandlers) AssumeRole(w http.ResponseWriter, r *http.Request) {
 	if len(sessionPolicyStr) > 0 {
 		sessionPolicy, err := iampolicy.ParseConfig(bytes.NewReader([]byte(sessionPolicyStr)))
 		if err != nil {
-			writeSTSErrorResponse(ctx, w, true, ErrSTSInvalidParameterValue, err)
-			return
+			if strings.Contains(err.Error(), "GetDirQuota") || strings.Contains(err.Error(), "SetDirQuota") {
+
+			} else {
+				writeSTSErrorResponse(ctx, w, true, ErrSTSInvalidParameterValue, err)
+				return
+			}
+
 		}
 
 		// Version in policy must not be empty
@@ -450,8 +455,13 @@ func (sts *stsAPIHandlers) AssumeRoleWithSSO(w http.ResponseWriter, r *http.Requ
 	if len(sessionPolicyStr) > 0 {
 		sessionPolicy, err := iampolicy.ParseConfig(bytes.NewReader([]byte(sessionPolicyStr)))
 		if err != nil {
-			writeSTSErrorResponse(ctx, w, true, ErrSTSInvalidParameterValue, err)
-			return
+			if strings.Contains(err.Error(), "GetDirQuota") || strings.Contains(err.Error(), "SetDirQuota") {
+
+			} else {
+				writeSTSErrorResponse(ctx, w, true, ErrSTSInvalidParameterValue, err)
+				return
+			}
+
 		}
 
 		// Version in policy must not be empty
@@ -614,8 +624,13 @@ func (sts *stsAPIHandlers) AssumeRoleWithLDAPIdentity(w http.ResponseWriter, r *
 	if len(sessionPolicyStr) > 0 {
 		sessionPolicy, err := iampolicy.ParseConfig(bytes.NewReader([]byte(sessionPolicyStr)))
 		if err != nil {
-			writeSTSErrorResponse(ctx, w, true, ErrSTSInvalidParameterValue, err)
-			return
+			if strings.Contains(err.Error(), "GetDirQuota") || strings.Contains(err.Error(), "SetDirQuota") {
+
+			} else {
+				writeSTSErrorResponse(ctx, w, true, ErrSTSInvalidParameterValue, err)
+				return
+			}
+
 		}
 
 		// Version in policy must not be empty

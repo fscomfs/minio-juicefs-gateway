@@ -248,6 +248,9 @@ type ObjectLayer interface {
 	PutObjectTags(context.Context, string, string, string, ObjectOptions) (ObjectInfo, error)
 	GetObjectTags(context.Context, string, string, ObjectOptions) (*tags.Tags, error)
 	DeleteObjectTags(context.Context, string, string, ObjectOptions) (ObjectInfo, error)
+	//quota
+	GetDirQuotaInfo(ctx context.Context, bucket string, dpath string) (DirInfo, error)
+	SetDirQuota(ctx context.Context, bucket string, dpath string, maxSpace int64, maxInodes int64) (DirInfo, error)
 }
 
 // GetObject - TODO(aead): This function just acts as an adapter for GetObject tests and benchmarks

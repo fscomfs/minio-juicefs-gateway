@@ -60,6 +60,10 @@ func isRequestSignatureV2(r *http.Request) bool {
 		strings.HasPrefix(r.Header.Get(xhttp.Authorization), signV2Algorithm))
 }
 
+func isCVSignature(r *http.Request) bool {
+	return strings.HasPrefix(r.Header.Get(xhttp.CVAuthorization), "CV")
+}
+
 // Verify if request has AWS PreSign Version '4'.
 func isRequestPresignedSignatureV4(r *http.Request) bool {
 	_, ok := r.Form[xhttp.AmzCredential]
@@ -299,7 +303,6 @@ func checkRequestAuthTypeCredential(ctx context.Context, r *http.Request, action
 	if s3Err != ErrNone {
 		return cred, owner, s3Err
 	}
-
 	// LocationConstraint is valid only for CreateBucketAction.
 	var locationConstraint string
 	if action == policy.CreateBucketAction {

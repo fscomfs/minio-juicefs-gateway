@@ -1498,3 +1498,14 @@ func (l *gcsGateway) DeleteBucketPolicy(ctx context.Context, bucket string) erro
 func (l *gcsGateway) IsCompressionSupported() bool {
 	return false
 }
+
+func (n *gcsGateway) GetDirQuotaInfo(ctx context.Context, bucket string, dpath string) (di minio.DirInfo, err error) {
+
+	//TODO implement me
+	panic("implement me")
+}
+
+func (n *gcsGateway) SetDirQuota(ctx context.Context, bucket string, dpath string, maxSpace int64, maxInodes int64) (minio.DirInfo, error) {
+	//TODO implement me
+	panic("implement me")
+}

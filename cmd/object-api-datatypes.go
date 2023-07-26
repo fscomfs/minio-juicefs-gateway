@@ -249,6 +249,16 @@ type ReplicateObjectInfo struct {
 	TargetStatuses    map[string]replication.StatusType
 }
 
+type DirInfo struct {
+	MaxSpace   int64
+	MaxInodes  int64
+	UsedSpace  int64
+	UsedInodes int64
+	newInodes  int64
+	newSpace   int64
+	DirName    string
+}
+
 // MultipartInfo captures metadata information about the uploadId
 // this data structure is used primarily for some internal purposes
 // for verifying upload type such as was the upload

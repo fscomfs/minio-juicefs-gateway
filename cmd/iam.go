@@ -1371,9 +1371,14 @@ func (sys *IAMSys) IsAllowedServiceAccount(args iampolicy.Args, parentUser strin
 	// Check if policy is parseable.
 	subPolicy, err := iampolicy.ParseConfig(bytes.NewReader([]byte(spolicyStr)))
 	if err != nil {
-		// Log any error in input session policy config.
-		logger.LogIf(GlobalContext, err)
-		return false
+		if strings.Contains(err.Error(), "GetDirQuota") || strings.Contains(err.Error(), "SetDirQuota") {
+
+		} else {
+			// Log any error in input session policy config.
+			logger.LogIf(GlobalContext, err)
+			return false
+		}
+
 	}
 
 	// This can only happen if policy was set but with an empty JSON.
@@ -1521,9 +1526,14 @@ func isAllowedBySessionPolicy(args iampolicy.Args) (hasSessionPolicy bool, isAll
 	// Check if policy is parseable.
 	subPolicy, err := iampolicy.ParseConfig(bytes.NewReader([]byte(spolicyStr)))
 	if err != nil {
-		// Log any error in input session policy config.
-		logger.LogIf(GlobalContext, err)
-		return
+		if strings.Contains(err.Error(), "GetDirQuota") || strings.Contains(err.Error(), "SetDirQuota") {
+
+		} else {
+			// Log any error in input session policy config.
+			logger.LogIf(GlobalContext, err)
+			return
+		}
+
 	}
 
 	// Policy without Version string value reject it.

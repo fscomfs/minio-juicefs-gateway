@@ -1446,3 +1446,14 @@ func (a *azureObjects) DeleteBucketPolicy(ctx context.Context, bucket string) er
 func (a *azureObjects) IsCompressionSupported() bool {
 	return false
 }
+
+func (n *azureObjects) GetDirQuotaInfo(ctx context.Context, bucket string, dpath string) (di minio.DirInfo, err error) {
+
+	//TODO implement me
+	panic("implement me")
+}
+
+func (n *azureObjects) SetDirQuota(ctx context.Context, bucket string, dpath string, maxSpace int64, maxInodes int64) (minio.DirInfo, error) {
+	//TODO implement me
+	panic("implement me")
+}

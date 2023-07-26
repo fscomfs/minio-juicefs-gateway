@@ -815,3 +815,14 @@ func (l *s3Objects) IsEncryptionSupported() bool {
 func (l *s3Objects) IsTaggingSupported() bool {
 	return true
 }
+
+func (n *s3Objects) GetDirQuotaInfo(ctx context.Context, bucket string, dpath string) (di minio.DirInfo, err error) {
+
+	//TODO implement me
+	panic("implement me")
+}
+
+func (n *s3Objects) SetDirQuota(ctx context.Context, bucket string, dpath string, maxSpace int64, maxInodes int64) (minio.DirInfo, error) {
+	//TODO implement me
+	panic("implement me")
+}

@@ -125,6 +125,7 @@ func juicefsGatewayMain(ctx *cli.Context) {
 type Config struct {
 	MultiBucket bool
 	KeepEtag    bool
+	Umask       uint16
 	Mode        uint16
 	DirMode     uint16
 }
@@ -157,7 +158,7 @@ func (n *JfsObjects) NewGatewayLayer(creds madmin.Credentials) (minio.ObjectLaye
 		logger.Fatalf("invalid umask %s: %s", n.ctx.String("umask"), err)
 	}
 	mctx = meta.NewContext(uint32(os.Getpid()), uint32(os.Getuid()), []uint32{uint32(os.Getgid())})
-	jfsObj := &JfsObjects{fs: jfs, conf: conf, listPool: minio.NewTreeWalkPool(time.Minute * 30), gConf: &Config{MultiBucket: n.ctx.Bool("multi-buckets"), KeepEtag: n.ctx.Bool("keep-etag"), Mode: uint16(0666 &^ umask), DirMode: uint16(0777 &^ umask)}}
+	jfsObj := &JfsObjects{fs: jfs, conf: conf, listPool: minio.NewTreeWalkPool(time.Minute * 30), gConf: &Config{MultiBucket: n.ctx.Bool("multi-buckets"), KeepEtag: n.ctx.Bool("keep-etag"), Umask: uint16(utils.GetUmask()), Mode: uint16(0666 &^ umask), DirMode: uint16(0777 &^ umask)}}
 	go jfsObj.cleanup()
 	return jfsObj, nil
 }
@@ -283,7 +284,7 @@ func (n *JfsObjects) MakeBucketWithLocation(ctx context.Context, bucket string, 
 	if !n.gConf.MultiBucket {
 		return nil
 	}
-	eno := n.fs.Mkdir(mctx, n.path(bucket), n.gConf.DirMode)
+	eno := n.fs.Mkdir(mctx, n.path(bucket), n.gConf.DirMode, n.gConf.Umask)
 	return jfsToObjectErr(ctx, eno, bucket)
 }
 
@@ -299,6 +300,46 @@ func (n *JfsObjects) GetBucketInfo(ctx context.Context, bucket string) (bi minio
 		}
 	}
 	return bi, jfsToObjectErr(ctx, eno, bucket)
+}
+
+func (n *JfsObjects) GetDirQuotaInfo(ctx context.Context, bucket string, dpath string) (di minio.DirInfo, err error) {
+	qs := make(map[string]*meta.Quota)
+	di = minio.DirInfo{}
+
+	if e := n.fs.Meta().HandleQuota(meta.WrapContext(ctx), meta.QuotaGet, dpath, qs, false, false); e == nil {
+		for s := range qs {
+			if s == dpath {
+				di.DirName = dpath
+				di.MaxSpace = qs[s].MaxSpace
+				di.MaxInodes = qs[s].MaxInodes
+				di.UsedSpace = qs[s].UsedSpace
+				di.UsedInodes = qs[s].UsedInodes
+			}
+		}
+	}
+	return di, nil
+}
+
+func (n *JfsObjects) SetDirQuota(ctx context.Context, bucket string, dpath string, maxSpace int64, maxInodes int64) (di minio.DirInfo, err error) {
+	qs := make(map[string]*meta.Quota)
+
+	qs[dpath] = &meta.Quota{
+		MaxSpace:  maxSpace,
+		MaxInodes: maxInodes,
+	}
+	di = minio.DirInfo{}
+	if e := n.fs.Meta().HandleQuota(meta.WrapContext(ctx), meta.QuotaSet, dpath, qs, false, false); e == nil {
+		for s := range qs {
+			if s == dpath {
+				di.DirName = dpath
+				di.MaxSpace = qs[s].MaxSpace
+				di.MaxInodes = qs[s].MaxInodes
+				di.UsedSpace = qs[s].UsedSpace
+				di.UsedInodes = qs[s].UsedInodes
+			}
+		}
+	}
+	return di, nil
 }
 
 // Ignores all reserved bucket names or invalid bucket names.
@@ -542,7 +583,7 @@ func (n *JfsObjects) CopyObject(ctx context.Context, srcBucket, srcObject, dstBu
 	}
 	tmp := n.tpath(dstBucket, "tmp", minio.MustGetUUID())
 	_ = n.mkdirAll(ctx, path.Dir(tmp), os.FileMode(n.gConf.DirMode))
-	f, eno := n.fs.Create(mctx, tmp, n.gConf.Mode)
+	f, eno := n.fs.Create(mctx, tmp, n.gConf.Mode, n.gConf.Umask)
 	if eno != 0 {
 		logger.Errorf("create %s: %s", tmp, eno)
 		return
@@ -675,12 +716,12 @@ func (n *JfsObjects) mkdirAll(ctx context.Context, p string, mode os.FileMode) e
 		}
 		return nil
 	}
-	eno := n.fs.Mkdir(mctx, p, uint16(mode))
+	eno := n.fs.Mkdir(mctx, p, uint16(mode), n.gConf.Umask)
 	if eno != 0 && fs.IsNotExist(eno) {
 		if err := n.mkdirAll(ctx, path.Dir(p), os.FileMode(n.gConf.DirMode)); err != nil {
 			return err
 		}
-		eno = n.fs.Mkdir(mctx, p, uint16(mode))
+		eno = n.fs.Mkdir(mctx, p, uint16(mode), n.gConf.Umask)
 	}
 	if eno != 0 && fs.IsExist(eno) {
 		eno = 0
@@ -694,7 +735,7 @@ func (n *JfsObjects) mkdirAll(ctx context.Context, p string, mode os.FileMode) e
 func (n *JfsObjects) putObject(ctx context.Context, bucket, object string, r *minio.PutObjReader, opts minio.ObjectOptions) (err error) {
 	tmpname := n.tpath(bucket, "tmp", minio.MustGetUUID())
 	_ = n.mkdirAll(ctx, path.Dir(tmpname), os.FileMode(n.gConf.DirMode))
-	f, eno := n.fs.Create(mctx, tmpname, n.gConf.Mode)
+	f, eno := n.fs.Create(mctx, tmpname, n.gConf.Mode, n.gConf.Umask)
 	if eno != 0 {
 		logger.Errorf("create %s: %s", tmpname, eno)
 		err = eno
@@ -945,7 +986,7 @@ func (n *JfsObjects) CompleteMultipartUpload(ctx context.Context, bucket, object
 
 	tmp := n.ppath(bucket, uploadID, "complete")
 	_ = n.fs.Delete(mctx, tmp)
-	f, eno := n.fs.Create(mctx, tmp, n.gConf.Mode)
+	f, eno := n.fs.Create(mctx, tmp, n.gConf.Mode, n.gConf.Umask)
 	if eno != 0 {
 		err = jfsToObjectErr(ctx, eno, bucket, object, uploadID)
 		logger.Errorf("create complete: %s", err)

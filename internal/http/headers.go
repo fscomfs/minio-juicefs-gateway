@@ -40,6 +40,7 @@ const (
 	Authorization      = "Authorization"
 	Action             = "Action"
 	Range              = "Range"
+	CVAuthorization    = "CVAuthorization"
 )
 
 // Non standard S3 HTTP response constants

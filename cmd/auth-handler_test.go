@@ -491,3 +491,54 @@ func TestValidateAdminSignature(t *testing.T) {
 		}
 	}
 }
+
+func TestCv(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	objLayer, fsDir, err := prepareFS()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(fsDir)
+
+	if err = newTestConfig(globalMinioDefaultRegion, objLayer); err != nil {
+		t.Fatalf("unable initialize config file, %s", err)
+	}
+
+	initAllSubsystems()
+
+	initConfigSubsystem(ctx, objLayer)
+
+	globalIAMSys.Init(ctx, objLayer, globalEtcdClient, 2*time.Second)
+
+	creds, err := auth.CreateCredentials("admin", "mypassword")
+	if err != nil {
+		t.Fatalf("unable create credential, %s", err)
+	}
+	globalActiveCred = creds
+
+	testCases := []struct {
+		AccessKey string
+		SecretKey string
+		ErrCode   APIErrorCode
+	}{
+		{"", "", ErrInvalidAccessKeyID},
+		{"admin", "", ErrSignatureDoesNotMatch},
+		{"admin", "wrongpassword", ErrSignatureDoesNotMatch},
+		{"wronguser", "mypassword", ErrInvalidAccessKeyID},
+		{"", "mypassword", ErrInvalidAccessKeyID},
+		{"admin", "mypassword", ErrNone},
+	}
+
+	for i, testCase := range testCases {
+		req := mustNewRequest(http.MethodGet, "http://localhost:9000/", 0, nil, t)
+		if err := signRequestV4(req, testCase.AccessKey, testCase.SecretKey); err != nil {
+			t.Fatalf("Unable to inititalized new signed http request %s", err)
+		}
+		_, _, _, s3Error := validateAdminSignature(ctx, req, globalMinioDefaultRegion)
+		if s3Error != testCase.ErrCode {
+			t.Errorf("Test %d: Unexpected s3error returned wanted %d, got %d", i+1, testCase.ErrCode, s3Error)
+		}
+	}
+}

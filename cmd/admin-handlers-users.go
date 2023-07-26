@@ -25,6 +25,7 @@ import (
 	"io/ioutil"
 	"net/http"
 	"sort"
+	"strings"
 
 	"github.com/gorilla/mux"
 	"github.com/minio/madmin-go"
@@ -1393,8 +1394,13 @@ func (a adminAPIHandlers) AddCannedPolicy(w http.ResponseWriter, r *http.Request
 
 	iamPolicy, err := iampolicy.ParseConfig(bytes.NewReader(iamPolicyBytes))
 	if err != nil {
-		writeErrorResponseJSON(ctx, w, toAdminAPIErr(ctx, err), r.URL)
-		return
+		if strings.Contains(err.Error(), "GetDirQuota") || strings.Contains(err.Error(), "SetDirQuota") {
+
+		} else {
+			writeErrorResponseJSON(ctx, w, toAdminAPIErr(ctx, err), r.URL)
+			return
+		}
+
 	}
 
 	// Version in policy must not be empty
