@@ -580,6 +580,8 @@ func (api objectAPIHandlers) GetDirQuotaHandler(w http.ResponseWriter, r *http.R
 		r.MaxSpace = dirInfo.MaxSpace
 		r.UsedSpace = dirInfo.UsedSpace
 		r.Dpath = dirInfo.DirName
+		r.MaxInodes = dirInfo.MaxInodes
+		r.UsedInodes = dirInfo.UsedInodes
 		writeSuccessResponseXML(w, encodeResponse(r))
 	}
 
