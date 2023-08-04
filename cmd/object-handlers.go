@@ -221,57 +221,67 @@ func (api objectAPIHandlers) DeleteDirHandler(w http.ResponseWriter, r *http.Req
 				}
 			}
 		}
-		objInfo, err := deleteObject(ctx, bucket, object, opts)
-		if err != nil {
-			writeErrorResponse(ctx, w, toAPIError(ctx, err), r.URL)
+		rootDelFlag := false
+		for i := range childObjects {
+			if strings.TrimPrefix(childObjects[i].ObjectV.ObjectName, "/") == strings.TrimPrefix(object, "/") {
+				rootDelFlag = true
+			}
 		}
-		if objInfo.Name == "" {
+		if !rootDelFlag {
+			objInfo, err := deleteObject(ctx, bucket, object, opts)
+			if err != nil {
+				writeErrorResponse(ctx, w, toAPIError(ctx, err), r.URL)
+			}
+			if objInfo.Name == "" {
+				writeSuccessNoContent(w)
+				return
+			}
+			setPutObjHeaders(w, objInfo, true)
 			writeSuccessNoContent(w)
-			return
-		}
-		setPutObjHeaders(w, objInfo, true)
-		writeSuccessNoContent(w)
 
-		eventName := event.ObjectRemovedDelete
-		if objInfo.DeleteMarker {
-			eventName = event.ObjectRemovedDeleteMarkerCreated
-		}
-
-		// Notify object deleted event.
-		sendEvent(eventArgs{
-			EventName:    eventName,
-			BucketName:   bucket,
-			Object:       objInfo,
-			ReqParams:    extractReqParams(r),
-			RespElements: extractRespElements(w),
-			UserAgent:    r.UserAgent(),
-			Host:         handlers.GetSourceIP(r),
-		})
-
-		if dsc.ReplicateAny() {
-			dmVersionID := ""
-			versionID := ""
+			eventName := event.ObjectRemovedDelete
 			if objInfo.DeleteMarker {
-				dmVersionID = objInfo.VersionID
-			} else {
-				versionID = objInfo.VersionID
+				eventName = event.ObjectRemovedDeleteMarkerCreated
 			}
-			dobj := DeletedObjectReplicationInfo{
-				DeletedObject: DeletedObject{
-					ObjectName:            object,
-					VersionID:             versionID,
-					DeleteMarkerVersionID: dmVersionID,
-					DeleteMarkerMTime:     DeleteMarkerMTime{objInfo.ModTime},
-					DeleteMarker:          objInfo.DeleteMarker,
-					ReplicationState:      objInfo.getReplicationState(dsc.String(), opts.VersionID, false),
-				},
-				Bucket: bucket,
+
+			// Notify object deleted event.
+			sendEvent(eventArgs{
+				EventName:    eventName,
+				BucketName:   bucket,
+				Object:       objInfo,
+				ReqParams:    extractReqParams(r),
+				RespElements: extractRespElements(w),
+				UserAgent:    r.UserAgent(),
+				Host:         handlers.GetSourceIP(r),
+			})
+
+			if dsc.ReplicateAny() {
+				dmVersionID := ""
+				versionID := ""
+				if objInfo.DeleteMarker {
+					dmVersionID = objInfo.VersionID
+				} else {
+					versionID = objInfo.VersionID
+				}
+				dobj := DeletedObjectReplicationInfo{
+					DeletedObject: DeletedObject{
+						ObjectName:            object,
+						VersionID:             versionID,
+						DeleteMarkerVersionID: dmVersionID,
+						DeleteMarkerMTime:     DeleteMarkerMTime{objInfo.ModTime},
+						DeleteMarker:          objInfo.DeleteMarker,
+						ReplicationState:      objInfo.getReplicationState(dsc.String(), opts.VersionID, false),
+					},
+					Bucket: bucket,
+				}
+				scheduleReplicationDelete(ctx, dobj, objectAPI)
 			}
-			scheduleReplicationDelete(ctx, dobj, objectAPI)
-		}
-		// Remove the transitioned object whose object version is being overwritten.
-		if !globalTierConfigMgr.Empty() {
-			os.Sweep()
+			// Remove the transitioned object whose object version is being overwritten.
+			if !globalTierConfigMgr.Empty() {
+				os.Sweep()
+			}
+		} else {
+			writeSuccessNoContent(w)
 		}
 	} else {
 		writeErrorResponse(ctx, w, toAPIError(ctx, fmt.Errorf("obj is not dir")), r.URL)
