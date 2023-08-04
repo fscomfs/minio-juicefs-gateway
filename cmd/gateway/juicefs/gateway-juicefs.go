@@ -512,16 +512,14 @@ func (n *JfsObjects) DeleteObject(ctx context.Context, bucket, object string, op
 	info.Name = object
 	p := n.path(bucket, object)
 	root := n.path(bucket)
-	for p != root {
+	if p != root {
 		if eno := n.fs.Delete(mctx, p); eno != 0 {
 			if fs.IsNotEmpty(eno) {
 				err = nil
 			} else {
 				err = eno
 			}
-			break
 		}
-		p = path.Dir(p)
 	}
 	return info, jfsToObjectErr(ctx, err, bucket, object)
 }

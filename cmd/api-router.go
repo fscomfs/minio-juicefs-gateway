@@ -290,6 +290,8 @@ func registerAPIRouter(router *mux.Router) {
 			collectAPIStats("getdirquota", maxClients(gz(httpTraceAll(api.GetDirQuotaHandler))))).Queries("quota", "")
 		router.Methods(http.MethodPost).Path("/{object:.+}").HandlerFunc(
 			collectAPIStats("setdirquota", maxClients(gz(httpTraceAll(api.SetDirQuotaHandler))))).Queries("quota", "")
+		router.Methods(http.MethodDelete).Path("/{object:.+}").HandlerFunc(
+			collectAPIStats("deleteDir", maxClients(gz(httpTraceAll(api.DeleteDirHandler))))).Queries("dir", "")
 
 		// GetObject - note gzip compression is *not* added due to Range requests.
 		router.Methods(http.MethodGet).Path("/{object:.+}").HandlerFunc(

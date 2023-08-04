@@ -100,6 +100,228 @@ func setHeadGetRespHeaders(w http.ResponseWriter, reqParams url.Values) {
 	}
 }
 
+func (api objectAPIHandlers) DeleteDirHandler(w http.ResponseWriter, r *http.Request) {
+	ctx := newContext(r, w, "DeleteDirHandler")
+	defer logger.AuditLog(ctx, w, r, mustGetClaimsFromToken(r))
+
+	objectAPI := api.ObjectAPI()
+	if objectAPI == nil {
+		writeErrorResponse(ctx, w, errorCodes.ToAPIErr(ErrServerNotInitialized), r.URL)
+		return
+	}
+	vars := mux.Vars(r)
+	bucket := vars["bucket"]
+	object, err := unescapePath(vars["object"])
+	if err != nil {
+		writeErrorResponse(ctx, w, toAPIError(ctx, err), r.URL)
+		return
+	}
+	if s3Error := checkRequestAuthType(ctx, r, policy.DeleteObjectAction, bucket, object); s3Error != ErrNone {
+		writeErrorResponse(ctx, w, errorCodes.ToAPIErr(s3Error), r.URL)
+		return
+	}
+	if globalDNSConfig != nil {
+		_, err := globalDNSConfig.Get(bucket)
+		if err != nil && err != dns.ErrNotImplemented {
+			writeErrorResponse(ctx, w, toAPIError(ctx, err), r.URL)
+			return
+		}
+	}
+
+	opts, err := delOpts(ctx, r, bucket, object)
+	if err != nil {
+		writeErrorResponse(ctx, w, toAPIError(ctx, err), r.URL)
+		return
+	}
+	var (
+		goi  ObjectInfo
+		gerr error
+	)
+
+	getObjectInfo := objectAPI.GetObjectInfo
+	if api.CacheAPI() != nil {
+		getObjectInfo = api.CacheAPI().GetObjectInfo
+	}
+
+	os := newObjSweeper(bucket, object).WithVersion(opts.VersionID).WithVersioning(opts.Versioned, opts.VersionSuspended)
+	// Mutations of objects on versioning suspended buckets
+	// affect its null version. Through opts below we select
+	// the null version's remote object to delete if
+	// transitioned.
+	goiOpts := os.GetOpts()
+	goi, gerr = getObjectInfo(ctx, bucket, object, goiOpts)
+	if gerr == nil {
+		os.SetTransitionState(goi.TransitionedObject)
+	}
+
+	dsc := checkReplicateDelete(ctx, bucket, ObjectToDelete{
+		ObjectV: ObjectV{
+			ObjectName: object,
+			VersionID:  opts.VersionID,
+		},
+	}, goi, opts, gerr)
+	if dsc.ReplicateAny() {
+		opts.SetDeleteReplicationState(dsc, opts.VersionID)
+	}
+
+	vID := opts.VersionID
+	if r.Header.Get(xhttp.AmzBucketReplicationStatus) == replication.Replica.String() {
+		// check if replica has permission to be deleted.
+		if apiErrCode := checkRequestAuthType(ctx, r, policy.ReplicateDeleteAction, bucket, object); apiErrCode != ErrNone {
+			writeErrorResponse(ctx, w, errorCodes.ToAPIErr(apiErrCode), r.URL)
+			return
+		}
+		opts.SetReplicaStatus(replication.Replica)
+		if opts.VersionPurgeStatus().Empty() {
+			// opts.VersionID holds delete marker version ID to replicate and not yet present on disk
+			vID = ""
+		}
+	}
+
+	apiErr := ErrNone
+	if rcfg, _ := globalBucketObjectLockSys.Get(bucket); rcfg.LockEnabled {
+		if opts.DeletePrefix {
+			writeErrorResponse(ctx, w, toAPIError(ctx, errors.New("force-delete is forbidden in a locked-enabled bucket")), r.URL)
+			return
+		}
+		if vID != "" {
+			apiErr = enforceRetentionBypassForDelete(ctx, r, bucket, ObjectToDelete{
+				ObjectV: ObjectV{
+					ObjectName: object,
+					VersionID:  vID,
+				},
+			}, goi, gerr)
+			if apiErr != ErrNone && apiErr != ErrNoSuchKey {
+				writeErrorResponse(ctx, w, errorCodes.ToAPIErr(apiErr), r.URL)
+				return
+			}
+		}
+	}
+
+	if apiErr == ErrNoSuchKey {
+		writeSuccessNoContent(w)
+		return
+	}
+
+	deleteObject := objectAPI.DeleteObject
+	deleteObjects := objectAPI.DeleteObjects
+	if api.CacheAPI() != nil {
+		deleteObject = api.CacheAPI().DeleteObject
+		deleteObjects = api.CacheAPI().DeleteObjects
+	}
+
+	if goi.IsDir {
+		childObjects := []ObjectToDelete{}
+		recursiceDir(ctx, objectAPI, bucket, object, &childObjects)
+		_, errs := deleteObjects(ctx, bucket, childObjects, ObjectOptions{})
+		if errs != nil && len(errs) > 0 {
+			for i := range errs {
+				if errs[i] != nil {
+					writeErrorResponse(ctx, w, toAPIError(ctx, err), r.URL)
+				}
+			}
+		}
+		objInfo, err := deleteObject(ctx, bucket, object, opts)
+		if err != nil {
+			writeErrorResponse(ctx, w, toAPIError(ctx, err), r.URL)
+		}
+		if objInfo.Name == "" {
+			writeSuccessNoContent(w)
+			return
+		}
+		setPutObjHeaders(w, objInfo, true)
+		writeSuccessNoContent(w)
+
+		eventName := event.ObjectRemovedDelete
+		if objInfo.DeleteMarker {
+			eventName = event.ObjectRemovedDeleteMarkerCreated
+		}
+
+		// Notify object deleted event.
+		sendEvent(eventArgs{
+			EventName:    eventName,
+			BucketName:   bucket,
+			Object:       objInfo,
+			ReqParams:    extractReqParams(r),
+			RespElements: extractRespElements(w),
+			UserAgent:    r.UserAgent(),
+			Host:         handlers.GetSourceIP(r),
+		})
+
+		if dsc.ReplicateAny() {
+			dmVersionID := ""
+			versionID := ""
+			if objInfo.DeleteMarker {
+				dmVersionID = objInfo.VersionID
+			} else {
+				versionID = objInfo.VersionID
+			}
+			dobj := DeletedObjectReplicationInfo{
+				DeletedObject: DeletedObject{
+					ObjectName:            object,
+					VersionID:             versionID,
+					DeleteMarkerVersionID: dmVersionID,
+					DeleteMarkerMTime:     DeleteMarkerMTime{objInfo.ModTime},
+					DeleteMarker:          objInfo.DeleteMarker,
+					ReplicationState:      objInfo.getReplicationState(dsc.String(), opts.VersionID, false),
+				},
+				Bucket: bucket,
+			}
+			scheduleReplicationDelete(ctx, dobj, objectAPI)
+		}
+		// Remove the transitioned object whose object version is being overwritten.
+		if !globalTierConfigMgr.Empty() {
+			os.Sweep()
+		}
+	} else {
+		writeErrorResponse(ctx, w, toAPIError(ctx, fmt.Errorf("obj is not dir")), r.URL)
+		return
+	}
+
+}
+func recursiceDir(ctx context.Context, objectAPI ObjectLayer, bucket string, path string, child *[]ObjectToDelete) {
+	listObjects := objectAPI.ListObjects
+	deleteObjects := objectAPI.DeleteObjects
+	if !strings.HasPrefix(path, "/") {
+		path = "/" + path
+	}
+	if !strings.HasSuffix(path, "/") {
+		path = path + "/"
+	}
+	if result, err := listObjects(ctx, bucket, path, "", "/", -1); err == nil {
+		for _, obj := range result.Objects {
+			select {
+			case <-ctx.Done():
+				break
+			default:
+				if !obj.DeleteMarker && obj.IsDir && obj.Name != path {
+					chlidTemp := []ObjectToDelete{}
+					recursiceDir(ctx, objectAPI, bucket, obj.Name, &chlidTemp)
+					deleteObjects(ctx, bucket, chlidTemp, ObjectOptions{})
+				} else {
+					*child = append(*child, ObjectToDelete{ObjectV: ObjectV{
+						ObjectName: obj.Name,
+					}})
+				}
+			}
+
+		}
+		for _, obj := range result.Prefixes {
+			select {
+			case <-ctx.Done():
+				break
+			default:
+				if obj != path {
+					chlidTemp := []ObjectToDelete{}
+					recursiceDir(ctx, objectAPI, bucket, obj, &chlidTemp)
+					deleteObjects(ctx, bucket, chlidTemp, ObjectOptions{})
+				}
+			}
+
+		}
+	}
+}
+
 // SelectObjectContentHandler - GET Object?select
 // ----------
 // This implementation of the GET operation retrieves object content based
