@@ -18,7 +18,9 @@
 package cmd
 
 import (
+	"archive/zip"
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/hex"
 	"encoding/xml"
@@ -888,8 +890,124 @@ func (api objectAPIHandlers) GetObjectHandler(w http.ResponseWriter, r *http.Req
 	if r.Header.Get(xMinIOExtract) == "true" && strings.Contains(object, archivePattern) {
 		api.getObjectInArchiveFileHandler(ctx, objectAPI, bucket, object, w, r)
 	} else {
-		api.getObjectHandler(ctx, objectAPI, bucket, object, w, r)
+		if strings.HasSuffix(object, "/") {
+			api.getFolderObjectZip(ctx, objectAPI, bucket, object, w, r)
+		} else {
+			api.getObjectHandler(ctx, objectAPI, bucket, object, w, r)
+		}
+
 	}
+}
+
+func (api objectAPIHandlers) getFolderObjectZip(ctx context.Context, objectAPI ObjectLayer, bucket, object string, res http.ResponseWriter, r *http.Request) {
+	if crypto.S3.IsRequested(r.Header) || crypto.S3KMS.IsRequested(r.Header) { // If SSE-S3 or SSE-KMS present -> AWS fails with undefined error
+		writeErrorResponse(ctx, res, errorCodes.ToAPIErr(ErrBadRequest), r.URL)
+		return
+	}
+	if _, ok := crypto.IsRequested(r.Header); !objectAPI.IsEncryptionSupported() && ok {
+		writeErrorResponse(ctx, res, errorCodes.ToAPIErr(ErrBadRequest), r.URL)
+		return
+	}
+
+	// get gateway encryption options
+	opts, err := getOpts(ctx, r, bucket, object)
+	if err != nil {
+		writeErrorResponse(ctx, res, toAPIError(ctx, err), r.URL)
+		return
+	}
+
+	// Check for auth type to return S3 compatible error.
+	// type to return the correct error (NoSuchKey vs AccessDenied)
+	if s3Error := checkRequestAuthType(ctx, r, policy.GetObjectAction, bucket, object); s3Error != ErrNone {
+		if getRequestAuthType(r) == authTypeAnonymous {
+			// As per "Permission" section in
+			// https://docs.aws.amazon.com/AmazonS3/latest/API/RESTObjectGET.html
+			// If the object you request does not exist,
+			// the error Amazon S3 returns depends on
+			// whether you also have the s3:ListBucket
+			// permission.
+			// * If you have the s3:ListBucket permission
+			//   on the bucket, Amazon S3 will return an
+			//   HTTP status code 404 ("no such key")
+			//   error.
+			// * if you don’t have the s3:ListBucket
+			//   permission, Amazon S3 will return an HTTP
+			//   status code 403 ("access denied") error.`
+			if globalPolicySys.IsAllowed(policy.Args{
+				Action:          policy.ListBucketAction,
+				BucketName:      bucket,
+				ConditionValues: getConditionValues(r, "", "", nil),
+				IsOwner:         false,
+			}) {
+				getObjectInfo := objectAPI.GetObjectInfo
+				if api.CacheAPI() != nil {
+					getObjectInfo = api.CacheAPI().GetObjectInfo
+				}
+
+				_, err = getObjectInfo(ctx, bucket, object, opts)
+				if toAPIError(ctx, err).Code == "NoSuchKey" {
+					s3Error = ErrNoSuchKey
+				}
+			}
+		}
+		writeErrorResponse(ctx, res, errorCodes.ToAPIErr(s3Error), r.URL)
+		return
+	}
+
+	getObjectNInfo := objectAPI.GetObjectNInfo
+	if api.CacheAPI() != nil {
+		getObjectNInfo = api.CacheAPI().GetObjectNInfo
+	}
+
+	// Validate pre-conditions if any.
+	opts.CheckPrecondFn = func(oi ObjectInfo) bool {
+		if objectAPI.IsEncryptionSupported() {
+			if _, err := DecryptObjectInfo(&oi, r); err != nil {
+				writeErrorResponse(ctx, res, toAPIError(ctx, err), r.URL)
+				return true
+			}
+		}
+
+		return checkPreconditions(ctx, res, r, oi, opts)
+	}
+	var folder string
+	folders := strings.Split(object, "/")
+	if len(folders) > 1 {
+		folder = folders[len(folders)-2]
+	}
+
+	result, err := objectAPI.ListObjectsV2(ctx, bucket, object, "", "", -1, false, "")
+	if err == nil {
+		if len(result.Objects) > 1000 {
+			writeErrorResponse(ctx, res, APIError{Code: "oversize", Description: "Folders with more than 1000 files cannot be packaged and downloaded", HTTPStatusCode: 502}, r.URL)
+			return
+		}
+		res.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s.zip\"", folder))
+		res.Header().Set("Content-Type", "application/zip")
+		zipw := zip.NewWriter(res)
+		defer zipw.Close()
+		for i, _ := range result.Objects {
+			if result.Objects[i].IsDir || strings.HasSuffix(result.Objects[i].Name, "/") {
+				continue
+			}
+			name := folder + result.Objects[i].Name[len(object)-1:]
+			var rs *HTTPRangeSpec = &HTTPRangeSpec{false, 0, -1}
+			gr, err := getObjectNInfo(ctx, bucket, result.Objects[i].Name, rs, r.Header, readLock, opts)
+			if err != nil {
+				writeErrorResponse(ctx, res, errorCodes.ToAPIErr(ErrBucketTaggingNotFound), r.URL)
+				return
+			}
+			f, err := zipw.Create(name)
+			if err != nil {
+				writeErrorResponse(ctx, res, errorCodes.ToAPIErr(ErrWriteQuorum), r.URL)
+			}
+			buf := new(bytes.Buffer)
+			buf.ReadFrom(gr)
+			f.Write(buf.Bytes())
+		}
+
+	}
+
 }
 
 func (api objectAPIHandlers) headObjectHandler(ctx context.Context, objectAPI ObjectLayer, bucket, object string, w http.ResponseWriter, r *http.Request) {
