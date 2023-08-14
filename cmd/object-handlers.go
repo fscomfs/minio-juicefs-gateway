@@ -20,7 +20,6 @@ package cmd
 import (
 	"archive/zip"
 	"bufio"
-	"bytes"
 	"context"
 	"encoding/hex"
 	"encoding/xml"
@@ -1001,9 +1000,25 @@ func (api objectAPIHandlers) getFolderObjectZip(ctx context.Context, objectAPI O
 			if err != nil {
 				writeErrorResponse(ctx, res, errorCodes.ToAPIErr(ErrWriteQuorum), r.URL)
 			}
-			buf := new(bytes.Buffer)
-			buf.ReadFrom(gr)
-			f.Write(buf.Bytes())
+			for {
+				chunk := make([]byte, 4096)
+				n, err := gr.Read(chunk)
+				if err != nil {
+					if err != io.EOF {
+						writeErrorResponse(ctx, res, errorCodes.ToAPIErr(ErrInternalError), r.URL)
+						return
+					}
+					break
+				}
+
+				if n > 0 {
+					_, err = f.Write(chunk[:n])
+					if err != nil {
+						writeErrorResponse(ctx, res, errorCodes.ToAPIErr(ErrInternalError), r.URL)
+						return
+					}
+				}
+			}
 		}
 
 	}
