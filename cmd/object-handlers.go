@@ -977,10 +977,6 @@ func (api objectAPIHandlers) getFolderObjectZip(ctx context.Context, objectAPI O
 
 	result, err := objectAPI.ListObjectsV2(ctx, bucket, object, "", "", -1, false, "")
 	if err == nil {
-		if len(result.Objects) > 1000 {
-			writeErrorResponse(ctx, res, APIError{Code: "oversize", Description: "Folders with more than 1000 files cannot be packaged and downloaded", HTTPStatusCode: 502}, r.URL)
-			return
-		}
 		res.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s.zip\"", folder))
 		res.Header().Set("Content-Type", "application/zip")
 		zipw := zip.NewWriter(res)
