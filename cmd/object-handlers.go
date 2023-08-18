@@ -30,6 +30,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -749,7 +750,10 @@ func (api objectAPIHandlers) getObjectHandler(ctx context.Context, objectAPI Obj
 		statusCodeWritten = true
 		w.WriteHeader(http.StatusPartialContent)
 	}
-
+	fileName := filepath.Base(object)
+	if fileName != "" {
+		w.Header().Set(xhttp.ContentDisposition, fmt.Sprintf("attachment; filename=\"%s\"", fileName))
+	}
 	// Write object content to response body
 	if _, err = xioutil.Copy(httpWriter, gr); err != nil {
 		if !httpWriter.HasWritten() && !statusCodeWritten {
