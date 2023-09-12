@@ -19,6 +19,7 @@ require (
 	github.com/coreos/go-oidc v2.1.0+incompatible
 	github.com/cosnicolaou/pbzip2 v1.0.1
 	github.com/dchest/siphash v1.2.1
+	github.com/dgrijalva/jwt-go v3.2.0+incompatible
 	github.com/djherbis/atime v1.0.0
 	github.com/dswarbrick/smart v0.0.0-20190505152634-909a45200d6d
 	github.com/dustin/go-humanize v1.0.1
@@ -39,7 +40,7 @@ require (
 	github.com/inconshreveable/mousetrap v1.0.0
 	github.com/jcmturner/gokrb5/v8 v8.4.4
 	github.com/json-iterator/go v1.1.12
-	github.com/juicedata/juicefs v1.1.0-beta2
+	github.com/juicedata/juicefs v1.1.0
 	github.com/klauspost/compress v1.14.4
 	github.com/klauspost/cpuid/v2 v2.0.11
 	github.com/klauspost/pgzip v1.2.5
@@ -123,6 +124,7 @@ require (
 	github.com/baidubce/bce-sdk-go v0.9.150 // indirect
 	github.com/benbjohnson/clock v1.1.0 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
+	github.com/billziss-gh/cgofuse v1.5.0 // indirect
 	github.com/bits-and-blooms/bitset v1.2.0 // indirect
 	github.com/ceph/go-ceph v0.18.0 // indirect
 	github.com/cespare/xxhash v1.1.0 // indirect
@@ -182,6 +184,7 @@ require (
 	github.com/googleapis/gnostic v0.5.5 // indirect
 	github.com/gorilla/websocket v1.4.2 // indirect
 	github.com/grpc-ecosystem/go-grpc-middleware v1.1.0 // indirect
+	github.com/hanwen/go-fuse/v2 v2.1.1-0.20210611132105-24a1dfe6b4f8 // indirect
 	github.com/hashicorp/consul/api v1.15.2 // indirect
 	github.com/hashicorp/errwrap v1.1.0 // indirect
 	github.com/hashicorp/go-cleanhttp v0.5.1 // indirect
@@ -204,6 +207,7 @@ require (
 	github.com/jessevdk/go-flags v1.4.0 // indirect
 	github.com/jmespath/go-jmespath v0.4.0 // indirect
 	github.com/josharian/intern v1.0.0 // indirect
+	github.com/juicedata/godaemon v0.0.0-20210629045518-3da5144a127d // indirect
 	github.com/juicedata/gogfapi v0.0.0-20230626071140-fc28e5537825 // indirect
 	github.com/juju/ratelimit v1.0.2 // indirect
 	github.com/kr/fs v0.1.0 // indirect
@@ -228,6 +232,7 @@ require (
 	github.com/minio/filepath v1.0.0 // indirect
 	github.com/minio/mc v0.0.0-20220204044644-e048c85d71a7 // indirect
 	github.com/minio/md5-simd v1.1.2 // indirect
+	github.com/minio/minio-go v6.0.14+incompatible // indirect
 	github.com/minio/operator v0.0.0-20220110040724-a5d59a342b7f // indirect
 	github.com/mitchellh/mapstructure v1.4.3 // indirect
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
@@ -258,7 +263,7 @@ require (
 	github.com/pquerna/cachecontrol v0.0.0-20171018203845-0dec1b30a021 // indirect
 	github.com/pquerna/ffjson v0.0.0-20190930134022-aa0246cd15f7 // indirect
 	github.com/prometheus/common v0.43.0 // indirect
-	github.com/pyroscope-io/godeltaprof v0.1.0 // indirect
+	github.com/pyroscope-io/godeltaprof v0.1.2 // indirect
 	github.com/qingstor/qingstor-sdk-go/v4 v4.4.0 // indirect
 	github.com/qiniu/go-sdk/v7 v7.15.0 // indirect
 	github.com/rcrowley/go-metrics v0.0.0-20201227073835-cf1acfcdf475 // indirect
@@ -296,6 +301,7 @@ require (
 	go.etcd.io/etcd/client/pkg/v3 v3.5.9 // indirect
 	go.mongodb.org/mongo-driver v1.7.5 // indirect
 	go.opencensus.io v0.23.0 // indirect
+	go.uber.org/automaxprocs v1.5.2 // indirect
 	go.uber.org/multierr v1.7.0 // indirect
 	golang.org/x/mod v0.8.0 // indirect
 	golang.org/x/net v0.9.0 // indirect
