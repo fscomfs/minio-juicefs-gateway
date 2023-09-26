@@ -204,18 +204,8 @@ func (api objectAPIHandlers) DeleteDirHandler(w http.ResponseWriter, r *http.Req
 		writeSuccessNoContent(w)
 		return
 	}
-
-	deleteObject := objectAPI.DeleteObject
-	deleteObjects := objectAPI.DeleteObjects
-	if api.CacheAPI() != nil {
-		deleteObject = api.CacheAPI().DeleteObject
-		deleteObjects = api.CacheAPI().DeleteObjects
-	}
-
 	if goi.IsDir {
-		childObjects := []ObjectToDelete{}
-		recursiceDir(ctx, objectAPI, bucket, object, &childObjects)
-		_, errs := deleteObjects(ctx, bucket, childObjects, ObjectOptions{})
+		errs := recursionDir(ctx, objectAPI, bucket, object)
 		if errs != nil && len(errs) > 0 {
 			for i := range errs {
 				if errs[i] != nil {
@@ -223,75 +213,15 @@ func (api objectAPIHandlers) DeleteDirHandler(w http.ResponseWriter, r *http.Req
 				}
 			}
 		}
-		rootDelFlag := false
-		for i := range childObjects {
-			if strings.TrimPrefix(childObjects[i].ObjectV.ObjectName, "/") == strings.TrimPrefix(object, "/") {
-				rootDelFlag = true
-			}
-		}
-		if !rootDelFlag {
-			objInfo, err := deleteObject(ctx, bucket, object, opts)
-			if err != nil {
-				writeErrorResponse(ctx, w, toAPIError(ctx, err), r.URL)
-			}
-			if objInfo.Name == "" {
-				writeSuccessNoContent(w)
-				return
-			}
-			setPutObjHeaders(w, objInfo, true)
-			writeSuccessNoContent(w)
-
-			eventName := event.ObjectRemovedDelete
-			if objInfo.DeleteMarker {
-				eventName = event.ObjectRemovedDeleteMarkerCreated
-			}
-
-			// Notify object deleted event.
-			sendEvent(eventArgs{
-				EventName:    eventName,
-				BucketName:   bucket,
-				Object:       objInfo,
-				ReqParams:    extractReqParams(r),
-				RespElements: extractRespElements(w),
-				UserAgent:    r.UserAgent(),
-				Host:         handlers.GetSourceIP(r),
-			})
-
-			if dsc.ReplicateAny() {
-				dmVersionID := ""
-				versionID := ""
-				if objInfo.DeleteMarker {
-					dmVersionID = objInfo.VersionID
-				} else {
-					versionID = objInfo.VersionID
-				}
-				dobj := DeletedObjectReplicationInfo{
-					DeletedObject: DeletedObject{
-						ObjectName:            object,
-						VersionID:             versionID,
-						DeleteMarkerVersionID: dmVersionID,
-						DeleteMarkerMTime:     DeleteMarkerMTime{objInfo.ModTime},
-						DeleteMarker:          objInfo.DeleteMarker,
-						ReplicationState:      objInfo.getReplicationState(dsc.String(), opts.VersionID, false),
-					},
-					Bucket: bucket,
-				}
-				scheduleReplicationDelete(ctx, dobj, objectAPI)
-			}
-			// Remove the transitioned object whose object version is being overwritten.
-			if !globalTierConfigMgr.Empty() {
-				os.Sweep()
-			}
-		} else {
-			writeSuccessNoContent(w)
-		}
+		writeSuccessNoContent(w)
 	} else {
 		writeErrorResponse(ctx, w, toAPIError(ctx, fmt.Errorf("obj is not dir")), r.URL)
 		return
 	}
 
 }
-func recursiceDir(ctx context.Context, objectAPI ObjectLayer, bucket string, path string, child *[]ObjectToDelete) {
+func recursionDir(ctx context.Context, objectAPI ObjectLayer, bucket string, path string) (errs []error) {
+	var child []ObjectToDelete = []ObjectToDelete{}
 	listObjects := objectAPI.ListObjects
 	deleteObjects := objectAPI.DeleteObjects
 	if !strings.HasPrefix(path, "/") {
@@ -300,18 +230,18 @@ func recursiceDir(ctx context.Context, objectAPI ObjectLayer, bucket string, pat
 	if !strings.HasSuffix(path, "/") {
 		path = path + "/"
 	}
+	cancelFlag := false
 	if result, err := listObjects(ctx, bucket, path, "", "/", -1); err == nil {
 		for _, obj := range result.Objects {
 			select {
 			case <-ctx.Done():
-				break
+				cancelFlag = true
+				return
 			default:
 				if !obj.DeleteMarker && obj.IsDir && obj.Name != path {
-					chlidTemp := []ObjectToDelete{}
-					recursiceDir(ctx, objectAPI, bucket, obj.Name, &chlidTemp)
-					deleteObjects(ctx, bucket, chlidTemp, ObjectOptions{})
+					recursionDir(ctx, objectAPI, bucket, obj.Name)
 				} else {
-					*child = append(*child, ObjectToDelete{ObjectV: ObjectV{
+					child = append(child, ObjectToDelete{ObjectV: ObjectV{
 						ObjectName: obj.Name,
 					}})
 				}
@@ -321,17 +251,28 @@ func recursiceDir(ctx context.Context, objectAPI ObjectLayer, bucket string, pat
 		for _, obj := range result.Prefixes {
 			select {
 			case <-ctx.Done():
-				break
+				cancelFlag = true
+				return
 			default:
 				if obj != path {
-					chlidTemp := []ObjectToDelete{}
-					recursiceDir(ctx, objectAPI, bucket, obj, &chlidTemp)
-					deleteObjects(ctx, bucket, chlidTemp, ObjectOptions{})
+					es := recursionDir(ctx, objectAPI, bucket, obj)
+					errs = append(errs, es...)
 				}
 			}
 
 		}
 	}
+	if cancelFlag {
+		return
+	}
+	child = append(child, ObjectToDelete{ObjectV: ObjectV{
+		ObjectName: path,
+	}})
+	_, es := deleteObjects(ctx, bucket, child, ObjectOptions{})
+	if len(es) > 0 {
+		errs = append(errs, es...)
+	}
+	return errs
 }
 
 // SelectObjectContentHandler - GET Object?select
