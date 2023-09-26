@@ -985,12 +985,12 @@ func (api objectAPIHandlers) getFolderObjectZip(ctx context.Context, objectAPI O
 		res.Header().Set("Content-Type", "application/zip")
 		zipw := zip.NewWriter(res)
 		defer zipw.Close()
+		var rs *HTTPRangeSpec
 		for i, _ := range result.Objects {
 			if result.Objects[i].IsDir || strings.HasSuffix(result.Objects[i].Name, "/") {
 				continue
 			}
 			name := folder + result.Objects[i].Name[len(object)-1:]
-			var rs *HTTPRangeSpec = &HTTPRangeSpec{false, 0, -1}
 			gr, err := getObjectNInfo(ctx, bucket, result.Objects[i].Name, rs, r.Header, readLock, opts)
 			if err != nil {
 				writeErrorResponse(ctx, res, errorCodes.ToAPIErr(ErrBucketTaggingNotFound), r.URL)
